@@ -1,0 +1,92 @@
+import pandas as pd
+import os
+import utilities
+import argparse
+import math
+
+
+def parse_arguments():
+    print('\nParse arguments')
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--path_annotations_csv_file', type=str, default=None,
+                        help='path to the boneage-train-dataset.csv file')
+    parser.add_argument('--dir_cropping_files', type=str, default=None,
+                        help='directory with the txt files that contain cropping area of each image')
+    parser.add_argument('--dir_annotation_files_out', type=str, default=None,
+                        help='output directory, where created annotation files should be saved')
+
+    # Parse and assert arguments
+    arguments = parser.parse_args()
+    assert arguments.path_annotations_csv_file is not None
+    assert arguments.dir_cropping_files is not None
+    assert arguments.dir_annotation_files_out is not None
+
+    utilities.check_output_dir(arguments.dir_annotation_files_out)
+
+    # Print arguments
+    for keys, values in arguments.__dict__.items():
+        print('\t{}: {}'.format(keys, values))
+
+    return arguments
+
+
+def add_sex_and_boneage_to_annotation_file(dir_cropping_files, path_csv, train, split_factor, dir_ann_out):
+    """
+    dir_cropping_files  directory with the txt files that contain cropping area of each image / at least 4 columns.
+    path_csv            path to csv boneage-training-dataset.csv (or equivalently the test annotation file)
+    train               training or testing dataset.
+    split_factor        factor of the original training dataset used for training the algorithm.
+                        kaggle testing dataset does not have any annotations and can't be used for testing here.
+                        kaggle training dataset has to be split into training and testing dataset.
+                        e.g. if train=true and split=0.8, the first 80% of the sorted cropping files are used.
+    dir_ann_out         path where to save new annotation files with added gender and boneage
+
+    output file format (6 columns):
+    TLx, TLy, BRx, BRy, is_male, boneage
+    """
+
+    list_all_existing_ann_files = utilities.get_list_of_files(dir_cropping_files) #sorted
+
+    if train:
+        start_index = 0
+        stop_index = math.floor(split_factor*len(list_all_existing_ann_files))
+        print("Number of cropping annotation files in train dataset: ", stop_index-start_index)
+    else: # test dataset
+        start_index = math.floor(split_factor*len(list_all_existing_ann_files)) + 1
+        stop_index = len(list_all_existing_ann_files) - 1
+        print("Number of cropping annotation files in test dataset:", stop_index - start_index)
+
+    list_existing_ann_files = list_all_existing_ann_files[start_index:stop_index]
+
+    with open(path_csv, 'r') as f_csv:
+        boneage = pd.read_csv(f_csv)
+
+    utilities.check_output_dir(dir_ann_out)
+
+    for filename in list_existing_ann_files:
+
+        with open(os.path.join(dir_cropping_files,filename), 'r') as f_in:
+            df_in = pd.read_csv(f_in, header=None)
+
+        '''prepare line for output file:'''
+        str_out = ""
+        for i in range(4):
+            str_out += str(df_in[i].values[0]) + ","
+
+        '''add boneage and gender'''
+        tmp_id = int(filename.split(".")[0])
+        tmp_df = boneage.loc[boneage['id'] == tmp_id]
+
+        str_out += str(tmp_df['male'].values[0]) + "," + str(tmp_df['boneage'].values[0])
+
+        with open(os.path.join(dir_ann_out,filename),'w') as f_out:
+            f_out.write(str_out)
+
+
+
+if __name__ == "__main__":
+
+    args = parse_arguments()
+    add_sex_and_boneage_to_annotation_file(
+        args.dir_cropping_files, args.path_annotations_csv_file, args.dir_annotation_files_out)
